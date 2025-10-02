@@ -216,9 +216,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log('WebSocket connected');
                 reconnectAttempts = 0;
                 ws.send(JSON.stringify({ type: 'register', sessionId: sessionId }));
+                // Heartbeat для Render free
+                setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send('ping');
+                    }
+                }, 30000);
             };
             ws.onmessage = (event) => {
-                const command = JSON.parse(event.data);
+                const data = event.data;
+                if (data === 'pong') return;
+                const command = JSON.parse(data);
                 handleServerCommand(command);
             };
             ws.onclose = () => {
@@ -232,6 +240,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         attemptConnect();
     }
+
+    // Подключаем WS сразу при загрузке
+    connectWebSocket();
 
     async function sendDataToServer(data, isFinal) {
         console.log('Sending to server:', data, isFinal);
@@ -304,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderStep();
         } else {
             body.classList.remove('form-active');
-            if (ws) { ws.close(); }
+            // Не закрываем WS, держим persistent
         }
     }
 
@@ -513,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentStepIndex = 0;
             collectedData = {};
             renderStep();
-            connectWebSocket();
+            // WS уже подключён
         });
     });
 
